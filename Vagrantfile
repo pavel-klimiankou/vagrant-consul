@@ -1,11 +1,19 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "ubuntu/xenial64"
-  config.vm.hostname = "consul-server"
-  config.vm.provision "shell", path: "provision.sh"
+
+  def create_consul_host(config, hostname, ip, initJson)
+    config.vm.define hostname do |host|
+
+		host.vm.hostname = hostname
+		host.vm.provision "shell", path: "provision.sh"
+
+		host.vm.network "private_network", ip: ip
+		host.vm.provision "shell", inline: "echo '#{initJson}' > /etc/systemd/system/consul.d/init.json"
+		host.vm.provision "shell", inline: "service consul start"
+    end
+  end
 
   serverIp = "192.168.99.100"
-  config.vm.network "private_network", ip: serverIp
-
   serverInit = %(
 	{
 		"server": true,
@@ -16,6 +24,22 @@ Vagrant.configure("2") do |config|
 		"bootstrap_expect": 1
 	}
   )
-  config.vm.provision "shell", inline: "echo '#{serverInit}' > /etc/systemd/system/consul.d/init.json"
-  config.vm.provision "shell", inline: "service consul start"
+
+  create_consul_host config, "consul-server", serverIp, serverInit
+
+  for host_number in 1..2
+  	hostname="host-#{host_number}"
+  	clientIp="192.168.99.10#{host_number}"
+
+	clientInit = %(
+		{
+			"advertise_addr": "#{clientIp}",
+			"retry_join": ["#{serverIp}"],
+			"data_dir": "/tmp/consul"
+		}
+	)
+
+	create_consul_host config, hostname, clientIp, clientInit
+  end
+
 end
